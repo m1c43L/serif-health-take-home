@@ -15,11 +15,11 @@ This code is should be portable to run on most machines. However, I added a simp
 By default, the script will stream the index through the internet, but if you have the file already downloaded on your machine,
 you can copy it into this directory and the script will use that instead - this results in faster runtime.
 
-The results are piped to `output.json`.
+The results are piped to `output.json.gz`.
 
 ### Runtimes
 
-Streaming index file from disk: `Total run time in seconds:  334.67`
+Streaming index file from disk: `Total run time in seconds:  297.46`
 
 
 ## Interview
@@ -40,13 +40,13 @@ Breaking it down to two questions:
 1. How can we tell if an MRF is for PPO?
 2. How can we tell if an MRF is for the New York state?
 
-(1) Looking at some sample segments, I see some pattern in the `plan_name` of `reporting_plans` where some seem to include what type of health plan the plan is including it's likely employer; for example, `"plan_name": "ANTHEM PPO - WICKSTROM INC - ANTHEM"`. So, I added a filter for every `reporting_structure` that looks for mentions of ` PPO ` in its reporting plan then assumes the MRF's can be for PPO. With consideration of the time, I'm sticking with this basic approach. I imagine we cab be more confident if we actually try to parse plan name and group them to those that follow certain pattern. Then different patterns are handled accordingly. For example, if the `plan_name` is `"ANTHEM PPO - WICKSTROM INC - ANTHEM"` then it can have a template like `<Type> - <Employer> - <Carrier>`. And if there is not a pattern matching what we know, we can log them and try to dig for hints.
+(1) Looking at some sample segments, I see some pattern in the `plan_name` of `reporting_plans` where some seem to include what type of health plan the plan is including it's likely employer; for example, `"plan_name": "ANTHEM PPO - WICKSTROM INC - ANTHEM"`. So, I added a filter for every `reporting_structure` that looks for mentions of ` PPO ` and `ANTHEM` in its reporting plan then assumes the MRF's can be for PPO. With consideration of the time, I'm sticking with this basic approach. I imagine we cab be more confident if we actually try to parse plan name and group them to those that follow certain pattern. Then different patterns are handled accordingly. For example, if the `plan_name` is `"ANTHEM PPO - WICKSTROM INC - ANTHEM"` then it can have a template like `<Name> - <Employer> - <Carrier>`. And if there is not a pattern matching what we know, we can log them and try to dig for hints.
 
 (2) To look for the MRF's region/state, I iterate the `in_network_files` and look at the descriptions to check if it contains keyword like ` NY ` or ` New York ` at first. Although, I found some, the results were not convincing because there are bits where the description doesn't mention useful information. For example `In-Network Negotiated Rates Files`. The descriptions seems to be very inconsistent, so I looked at other field which is the `location` or the URL of the file. Looking at the URL there seems to be this pattern 
 `<protocol>://<origin>/<filename>?&Expires={TIMESTAMP}&Signature={ACCESS_KEY}`, but looking closely at the filename it seems like we have `YYYY-MM_CODEA_CODEB_in-network-rates_I_of_N.json.gz` -> `2024-01_254_39B0_in-network-rates_4_of_9.json.gz`. I was particularly curious about `CODEA`. PLaying around with the [Anthem EIN lookup](https://www.anthem.com/machine-readable-file/search/) `CODEA` seemed to map to a state or region. I added an explaination in the snippet below. It's also in the code.
 ```
 /**
- * RegionCode/State abbreviation to file identifier code.
+ * RegionCode/State abbreviation to file identifier code for "In-Network Negotiated Rates Files".
  *
  * GET https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/{EIN}
  * Lets us pull the negotiated rates files.
@@ -65,7 +65,7 @@ Breaking it down to two questions:
  * }
  * If we look at the two key-pair, we can see that the URL's path is almost identical to the displayname or filename except that instead of the state abbreviation,
  * we have a numeric code (`2024-01_NY_39B0_in-network-rates_4_of_9.json.gz` vs `2024-01_254_39B0_in-network-rates_4_of_9.json.gz`).
- * This pattern seems to be consistent with other state abbreviations so it's plausible to assume that this numeric code represent the a state.
+ * This pattern seems to be consistent with other state abbreviations for `In-Network Negotiated Rates Files` so it's plausible to assume that this numeric code represent the a state.
  */
 enum RegionCode {
   NY = 254,

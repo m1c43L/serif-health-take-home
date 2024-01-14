@@ -1,6 +1,6 @@
 import fs, { ReadStream } from "fs";
 import { stat } from "fs/promises";
-import { createGunzip } from "zlib";
+import { createGunzip, createGzip } from "zlib";
 import { PassThrough, Transform, pipeline } from "stream";
 import { promisify } from "util";
 import { SingleBar } from "cli-progress";
@@ -11,7 +11,7 @@ import JSONStream from "JSONStream";
 const pipelineAsync = promisify(pipeline);
 
 /**
- * RegionCode/State abbreviation to file identifier code.
+ * RegionCode/State abbreviation to file identifier code for "In-Network Negotiated Rates Files".
  *
  * GET https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/{EIN}
  * Lets us pull the negotiated rates files.
@@ -30,7 +30,7 @@ const pipelineAsync = promisify(pipeline);
  * }
  * If we look at the two key-pair, we can see that the URL's path is almost identical to the displayname or filename except that instead of the state abbreviation,
  * we have a numeric code (`2024-01_NY_39B0_in-network-rates_4_of_9.json.gz` vs `2024-01_254_39B0_in-network-rates_4_of_9.json.gz`).
- * This pattern seems to be consistent with other state abbreviations so it's plausible to assume that this numeric code represent the a state.
+ * This pattern seems to be consistent with other state abbreviations for `In-Network Negotiated Rates Files` so it's plausible to assume that this numeric code represent the a state.
  */
 enum RegionCode {
   NY = 254,
@@ -57,16 +57,16 @@ const processJSONStream = (zipped: boolean) =>
             ArrayOfObjects.parse(data.in_network_files) ?? [];
 
           if (
-            reportingPlans.some(({ plan_name }) => plan_name?.includes(" PPO "))
+            reportingPlans.some(({ plan_name }) => plan_name?.includes(" PPO ") && plan_name?.includes('ANTHEM'))
           ) {
             for (const file of inNetworkFiles) {
               // logging
-              const item = {
-                ...file,
-                plans: reportingPlans?.map((v: any) => v.plan_name).join("|"),
-                id: reportingPlans[0]?.plan_id,
-                idType: reportingPlans?.[0]?.plan_id_type,
-              };
+              // const item: any = {
+              //   ...file,
+              //   plans: reportingPlans?.map((v: any) => v.plan_name).join("|"),
+              //   id: reportingPlans[0]?.plan_id,
+              //   idType: reportingPlans?.[0]?.plan_id_type,
+              // };
               const url = new URL(file.location);
               if (url.pathname.includes(`_${RegionCode.NY}_`)) {
                 this.push(file.location);
@@ -124,7 +124,8 @@ const processFile = async (input: string, output: string) => {
     displayProgress(fileSizeInBytes),
     ...processJSONStream(input.endsWith(".gz")),
     JSONStream.stringify("[\n", ",", "]\n"),
-    fs.createWriteStream(output),
+    createGzip(),
+    fs.createWriteStream(output + '.gz'),
   ]);
 
   console.log(
