@@ -19,14 +19,15 @@ The results are piped to `output.json.gz`.
 
 ### Runtimes
 
-Streaming index file from disk: `Total run time in seconds:  297.46`
+Streaming index file from disk: `Total run time in seconds:  297.46`.
+Streaming index file from s3: `-` (The download speed of my ISP is not great it was taking way too long. Took me 1h+ to download the index file)
 
 
 ## Interview
 
-### Solution
-
 The problem involes working on a large file to filter out relevant information pertaining to MRFs of Anthem PPO network in the New York state.
+
+### Solution
 
 When working with data, I normally like to see some actual values to get a better sense of what I'm dealing with.
 But for this case, the file is ~13gb compressed so previewing bits of it was not going to be trivial. 
@@ -40,10 +41,10 @@ Breaking it down to two questions:
 1. How can we tell if an MRF is for PPO?
 2. How can we tell if an MRF is for the New York state?
 
-(1) Looking at some sample segments, I see some pattern in the `plan_name` of `reporting_plans` where some seem to include what type of health plan the plan is including it's likely employer; for example, `"plan_name": "ANTHEM PPO - WICKSTROM INC - ANTHEM"`. So, I added a filter for every `reporting_structure` that looks for mentions of ` PPO ` and `ANTHEM` in its reporting plan then assumes the MRF's can be for PPO. With consideration of the time, I'm sticking with this basic approach. I imagine we cab be more confident if we actually try to parse plan name and group them to those that follow certain pattern. Then different patterns are handled accordingly. For example, if the `plan_name` is `"ANTHEM PPO - WICKSTROM INC - ANTHEM"` then it can have a template like `<Name> - <Employer> - <Carrier>`. And if there is not a pattern matching what we know, we can log them and try to dig for hints.
+(1) Looking at some sample segments, I see some pattern in the `plan_name` of `reporting_plans` where some seem to include what type of health plan the plan is including it's likely employer; for example, `"plan_name": "ANTHEM PPO - WICKSTROM INC - ANTHEM"`. So, I added a filter for every `reporting_structure` that looks for mentions of ` PPO ` and `ANTHEM` in its reporting plan then assumes the MRF's can be for PPO. With consideration of the time, I'm sticking with this basic approach. I imagine we can be more confident if we actually try to parse plan name and group them based on pattern they follow. Then these different patterns are handled accordingly. For example, if the `plan_name` is `"ANTHEM PPO - WICKSTROM INC - ANTHEM"` then it may have a template like `<Name> - <Employer> - <Carrier>`. And if there is not a pattern matching what we know, we can log them and try to dig for hints. Iterate this until we end up handling most case.
 
-(2) To look for the MRF's region/state, I iterate the `in_network_files` and look at the descriptions to check if it contains keyword like ` NY ` or ` New York ` at first. Although, I found some, the results were not convincing because there are bits where the description doesn't mention useful information. For example `In-Network Negotiated Rates Files`. The descriptions seems to be very inconsistent, so I looked at other field which is the `location` or the URL of the file. Looking at the URL there seems to be this pattern 
-`<protocol>://<origin>/<filename>?&Expires={TIMESTAMP}&Signature={ACCESS_KEY}`, but looking closely at the filename it seems like we have `YYYY-MM_CODEA_CODEB_in-network-rates_I_of_N.json.gz` -> `2024-01_254_39B0_in-network-rates_4_of_9.json.gz`. I was particularly curious about `CODEA`. PLaying around with the [Anthem EIN lookup](https://www.anthem.com/machine-readable-file/search/) `CODEA` seemed to map to a state or region. I added an explaination in the snippet below. It's also in the code.
+(2) To look for the MRF's region/state, I iterate the `in_network_files` and look at the descriptions to check if it contains keyword like ` NY ` or ` New York `. Although, I found some, the results were not convincing because all the resulting entities pertained to Highmark instead of Anthem and after further inspections there are bits where the description doesn't mention useful information for what I need. For example `In-Network Negotiated Rates Files`. The descriptions seems to be very inconsistent, so I looked at other field which is the `location` or the URL of the file. Looking at the URL there seems to be this pattern 
+`<protocol>://<origin>/<filename>?&Expires={TIMESTAMP}&Signature={ACCESS_KEY}`, but looking closely at the filename it seems like we have `YYYY-MM_X_Y_in-network-rates_I_of_N.json.gz` -> `2024-01_254_39B0_in-network-rates_4_of_9.json.gz`. I was particularly curious about `X`. PLaying around with the [Anthem EIN lookup](https://www.anthem.com/machine-readable-file/search/) `X` seemed to map to a state or region. I added an explaination in the snippet below. It's also in the code.
 ```
 /**
  * RegionCode/State abbreviation to file identifier code for "In-Network Negotiated Rates Files".
@@ -75,11 +76,8 @@ With this information, I added a filter to my logic that looks for the `RegionCo
 
 There are other url patterns that may not fit this format and this this assumptions. To account for those, we can create a url parser that can try to parse the URL and see if it match this format and we can be more confident that our assumption is true. If not, we can log it and inspect the `reporting_structure` to find clue.
 
+In the script, i've included a loose validation in order to assert the shape of data i'm working with. It does not add significant value in this case because the data we are working with follows a schema, 
+but I think there are advandtages on using such when working with data. In addition to making the codebase easier to work with, we want to be alerted (and therefore respond) when the data we are working on changes in ways our that affects the quality of the product. The common pitfall I see when using such validations is that when we write it too strict, it may prevents the program from performing it's core functions even when the change on data shape is irrelevant.
 
 
-### How long it took you to write the script?
-
-- Writing the script is pretty straightforward because I have some experience with working on steams. I would say ~1hr.
-
-
-
+Writing the script took I would say ~1.5hrs.
